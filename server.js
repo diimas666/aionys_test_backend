@@ -1,74 +1,69 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Памятка заметок
-let notes = [
-  {
-    id: '1',
-    title: 'Первая заметка',
-    content: 'Текст заметки №1',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    title: 'Вторая заметка',
-    content: 'Текст заметки №2',
-    createdAt: new Date().toISOString(),
-  },
-];
+//  MongoDB
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch((err) => console.error('❌ MongoDB connection error:', err));
 
-// GET /notes — все заметки
-app.get('/notes', (req, res) => {
+// Модель заметки
+const noteSchema = new mongoose.Schema({
+  id: { type: String, default: uuidv4 },
+  title: String,
+  content: String,
+  createdAt: { type: Date, default: Date.now },
+});
+const Note = mongoose.model('Note', noteSchema);
+
+app.get('/notes', async (req, res) => {
+  const notes = await Note.find().sort({ createdAt: -1 });
   res.json(notes);
 });
 
-// GET /notes/:id — одна заметка
-app.get('/notes/:id', (req, res) => {
-  const note = notes.find((n) => n.id === req.params.id);
+app.get('/notes/:id', async (req, res) => {
+  const note = await Note.findOne({ id: req.params.id });
   if (!note) return res.status(404).json({ error: 'Not Found' });
   res.json(note);
 });
 
-// POST /notes — создать заметку
-app.post('/notes', (req, res) => {
-  const { title, content } = req.body; // было { title, body }
+app.post('/notes', async (req, res) => {
+  const { title, content } = req.body;
   if (!title || !content)
     return res.status(400).json({ error: 'title and content are required' });
 
-  const newNote = {
-    id: uuidv4(),
-    title,
-    content,
-    createdAt: new Date().toISOString(),
-  };
-  notes.unshift(newNote);
+  const newNote = new Note({ title, content });
+  await newNote.save();
   res.status(201).json(newNote);
 });
 
-// PUT /notes/:id — обновить заметку (частично)
-app.put('/notes/:id', (req, res) => {
+app.put('/notes/:id', async (req, res) => {
   const { title, content } = req.body;
-  const note = notes.find((n) => n.id === req.params.id);
+  const note = await Note.findOneAndUpdate(
+    { id: req.params.id },
+    { $set: { title, content } },
+    { new: true }
+  );
   if (!note) return res.status(404).json({ error: 'Not Found' });
-
-  note.title = title ?? note.title;
-  note.content = content ?? note.content;
   res.json(note);
 });
 
-// DELETE /notes/:id — удалить заметку
-app.delete('/notes/:id', (req, res) => {
-  const before = notes.length;
-  notes = notes.filter((n) => n.id !== req.params.id);
-  if (notes.length === before)
+app.delete('/notes/:id', async (req, res) => {
+  const result = await Note.deleteOne({ id: req.params.id });
+  if (result.deletedCount === 0)
     return res.status(404).json({ error: 'Not Found' });
   res.status(204).send();
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`API running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
